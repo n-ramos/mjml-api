@@ -30,21 +30,41 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Start services with Docker Compose
-        run: docker-compose up -d
-        # Assurez-vous que votre docker-compose.yml démarre le serveur sur le port 3000
+      - name: Build Docker image for testing
+        run: docker build -t test-image:latest .
+
+      - name: Start server in Docker
+        run: |
+          docker run -d \
+            --name test-server \
+            -p 3000:3000 \
+            test-image:latest
+          sleep 2
 
       - name: Wait for server to be ready
         run: |
-          npm install -g wait-on
-          wait-on http://localhost:3000/health --timeout 60000
+          for i in {1..30}; do
+            if curl -f http://localhost:3000/health > /dev/null 2>&1; then
+              echo "Server is ready!"
+              exit 0
+            fi
+            echo "Attempt $i: Server not ready, waiting..."
+            sleep 1
+          done
+          echo "Server failed to start"
+          docker logs test-server
+          exit 1
 
       - name: Run tests
         run: npm test
 
-      - name: Stop services
+      - name: Stop server
         if: always()
-        run: docker-compose down
+        run: docker stop test-server && docker rm test-server || true
+
+      - name: Show server logs on failure
+        if: failure()
+        run: docker logs test-server || true
 
   build-and-push:
     name: Build & Push Docker Image
